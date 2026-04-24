@@ -14,9 +14,11 @@ venv/
 # OS
 .DS_Store
 
-# Logs / checkpoints
+# Logs / checkpoints, test files
 logs/
 runs/
 *.pt
 *.pth
 *.ckpt
+*.wav
+*.ipynb
