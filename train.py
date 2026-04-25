@@ -97,6 +97,10 @@ def train():
     # =========================
     # TRAIN LOOP
     # =========================
+    best_val_loss = float('inf')
+    patience = 5
+    patience_counter = 0
+    
     for epoch in range(hp["epochs"]):
         print("epoch ", epoch)
 
@@ -133,6 +137,7 @@ def train():
 
             optimizer.zero_grad()
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
 
             train_loss += loss.item()
@@ -199,11 +204,27 @@ def train():
 
         print(f"Epoch {epoch} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
 
+        # =========================
+        # CHECKPOINT SAVING
+        # =========================
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            patience_counter = 0
+            best_model_path = os.path.join(model_dir, "best_model.pth")
+            torch.save(model.state_dict(), best_model_path)
+            print(f"✓ Best model saved (val_loss: {val_loss:.4f})")
+        else:
+            patience_counter += 1
+            if patience_counter >= patience:
+                print(f"Early stopping triggered after {epoch} epochs")
+                break
+
     writer.close()
     # =========================
-    # SAVE MODEL
+    # SAVE FINAL MODEL
     # =========================
-    model_path = os.path.join(model_dir, "model.pth")
-    torch.save(model.state_dict(), model_path)
-
-    print("Model saved to:", model_path)
+    final_model_path = os.path.join(model_dir, "final_model.pth")
+    torch.save(model.state_dict(), final_model_path)
+    print(f"Final model saved to: {final_model_path}")
+    print(f"Best model (validation) saved to: {os.path.join(model_dir, 'best_model.pth')}")
+    print(f"Best validation loss: {best_val_loss:.4f}")

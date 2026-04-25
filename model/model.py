@@ -11,6 +11,10 @@ class MusicConRec(nn.Module):
 
         # === AUDIO SIDE ===
         self.encodec = EncodecModel.from_pretrained("facebook/encodec_24khz")
+        
+        # Freeze EncodecModel parameters (we use it as fixed encoder/decoder)
+        for param in self.encodec.parameters():
+            param.requires_grad = False
 
         self.code_embedding = nn.Embedding(codebook_size, feature_dim)
 

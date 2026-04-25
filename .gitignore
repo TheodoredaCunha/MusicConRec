@@ -8,6 +8,10 @@ __pycache__/
 venv/
 .venv/
 
+#Sagemaker related
+scripts/
+
+
 # VSCode
 .vscode/
 
