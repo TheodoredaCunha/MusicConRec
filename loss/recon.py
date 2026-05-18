@@ -41,10 +41,10 @@ def _stft_loss(x, y, n_fft, hop_length, win_length):
         torch.log1p(X_mag)
     )
 
-    print("sc_loss:", sc_loss.item())
-    print("log_loss:", log_loss.item())
-    print("X_mag max:", X_mag.max().item())
-    print("Y_mag max:", Y_mag.max().item())
+    # print("sc_loss:", sc_loss.item())
+    # print("log_loss:", log_loss.item())
+    # print("X_mag max:", X_mag.max().item())
+    # print("Y_mag max:", Y_mag.max().item())
 
     return sc_loss + log_loss
 
