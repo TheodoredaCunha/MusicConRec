@@ -130,12 +130,12 @@ def train():
             x = audio.squeeze(1)
             x_hat = x_recon.squeeze(1)
 
-            print("x nan:", torch.isnan(x).any().item())
-            print("x_hat nan:", torch.isnan(x_hat).any().item())
-            print("x max:", x.abs().max().item())
-            print("x_hat max:", x_hat.abs().max().item())
-            print("x mean:", x.mean().item())
-            print("x_hat mean:", x_hat.mean().item())
+            # print("x nan:", torch.isnan(x).any().item())
+            # print("x_hat nan:", torch.isnan(x_hat).any().item())
+            # print("x max:", x.abs().max().item())
+            # print("x_hat max:", x_hat.abs().max().item())
+            # print("x mean:", x.mean().item())
+            # print("x_hat mean:", x_hat.mean().item())
 
             recon_loss = multi_scale_stft_loss(
                 x,
