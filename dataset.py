@@ -29,7 +29,7 @@ class MusicBenchDataset(Dataset):
         # AUDIO
         # =========================
         audio_path = os.path.join(self.data_dir, item["location"])
-        waveform, sr = torchaudio.load(audio_path, normalize=False)
+        waveform, sr = torchaudio.load(audio_path, normalize=True)
         max_val = waveform.abs().max()
         if max_val > 0:
             waveform = waveform / max_val
