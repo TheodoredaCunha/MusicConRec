@@ -26,8 +26,9 @@ def get_env_paths():
     else:
         print("Running locally")
 
-        train_dir = "C:/temp"
-        val_dir = "C:/temp"
+        audio_root = os.environ.get("AUDIO_ROOT", ".")
+        train_dir = os.environ.get("TRAIN_AUDIO_DIR", audio_root)
+        val_dir = os.environ.get("VAL_AUDIO_DIR", audio_root)
         model_dir = "./outputs"
         log_dir = "./runs"
 
@@ -71,7 +72,7 @@ def train():
         batch_size=hp["batch_size"],
         shuffle=True,
         collate_fn=collate_fn,
-        num_workers=4,
+        num_workers=hp["num_workers"],
         pin_memory=True
     )
 
@@ -80,7 +81,7 @@ def train():
         batch_size=hp["batch_size"],
         shuffle=False,
         collate_fn=collate_fn,
-        num_workers=4,
+        num_workers=hp["num_workers"],
         pin_memory=True
     )
 
