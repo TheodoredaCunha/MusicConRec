@@ -4,6 +4,9 @@ import torchaudio
 
 
 def _stft_loss(x, y, n_fft, hop_length, win_length):
+    x = torch.nan_to_num(x, nan=0.0, posinf=1.0, neginf=-1.0)
+    y = torch.nan_to_num(y, nan=0.0, posinf=1.0, neginf=-1.0)
+
     window = torch.hann_window(win_length).to(x.device)
 
     X = torch.stft(
@@ -24,14 +27,14 @@ def _stft_loss(x, y, n_fft, hop_length, win_length):
     )
 
     # magnitude
-    X_mag = X.abs()
-    Y_mag = Y.abs()
+    X_mag = X.abs().clamp(min=1e-9)
+    Y_mag = Y.abs().clamp(min=1e-9)
 
     # spectral convergence
-    sc_loss = torch.norm(Y_mag - X_mag, p="fro") / torch.norm(Y_mag, p="fro")
+    sc_loss = torch.norm(Y_mag - X_mag, p="fro") / (torch.norm(Y_mag, p="fro") + 1e-9)
 
     # log magnitude loss
-    log_loss = F.l1_loss(torch.log(Y_mag + 1e-7), torch.log(X_mag + 1e-7))
+    log_loss = F.l1_loss(torch.log(Y_mag), torch.log(X_mag))
 
     return sc_loss + log_loss
 
