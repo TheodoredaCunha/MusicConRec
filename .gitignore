@@ -11,9 +11,6 @@ venv/
 #env files
 .env
 
-#Sagemaker related
-scripts/
-
 
 # VSCode
 .vscode/
