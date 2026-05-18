@@ -36,7 +36,15 @@ def _stft_loss(x, y, n_fft, hop_length, win_length):
     sc_loss = sc_num / sc_den
 
     # log magnitude loss
-    log_loss = F.l1_loss(torch.log(Y_mag), torch.log(X_mag))
+    log_loss = F.l1_loss(
+        torch.log1p(Y_mag),
+        torch.log1p(X_mag)
+    )
+
+    print("sc_loss:", sc_loss.item())
+    print("log_loss:", log_loss.item())
+    print("X_mag max:", X_mag.max().item())
+    print("Y_mag max:", Y_mag.max().item())
 
     return sc_loss + log_loss
 
@@ -45,8 +53,6 @@ def multi_scale_stft_loss(x, y):
     losses = []
     
     configs = [
-        (1024, 256, 1024),
-        (512, 128, 512),
         (256, 64, 256),
     ]
     
