@@ -203,7 +203,16 @@ def train():
         writer.add_scalar("Loss/Val_Contrastive", val_contrastive, epoch)
         writer.add_scalar("Loss/Val_Reconstruction", val_recon, epoch)
 
-        print(f"Epoch {epoch} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
+        train_recon_weighted = hp["lambda_recon"] * train_recon
+        val_recon_weighted = hp["lambda_recon"] * val_recon
+        print(
+            f"Epoch {epoch} | Train Total: {train_loss:.4f} | "
+            f"Train Contrastive: {train_contrastive:.4f} | "
+            f"Train λ*Recon: {train_recon_weighted:.4f} | "
+            f"Val Total: {val_loss:.4f} | "
+            f"Val Contrastive: {val_contrastive:.4f} | "
+            f"Val λ*Recon: {val_recon_weighted:.4f}"
+        )
 
         # =========================
         # CHECKPOINT SAVING
