@@ -58,6 +58,7 @@ class MusicConRec(nn.Module):
         # RECONSTRUCTION
         # =========================
         x_recon = self.encodec.decode(audio_codes, audio_scales)['audio_values']
+        x_recon = torch.tanh(x_recon).clamp(-1.0, 1.0)
 
         # =========================
         # CHORD BRANCH

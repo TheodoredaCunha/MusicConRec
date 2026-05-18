@@ -41,6 +41,7 @@ def get_env_paths():
 
 def train():
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    torch.autograd.set_detect_anomaly(True)
 
     # =========================
     # HYPERPARAMETERS
@@ -126,9 +127,19 @@ def train():
                 hp["ntxent_temperature"]
             )
 
+            x = audio.squeeze(1)
+            x_hat = x_recon.squeeze(1)
+
+            print("x nan:", torch.isnan(x).any().item())
+            print("x_hat nan:", torch.isnan(x_hat).any().item())
+            print("x max:", x.abs().max().item())
+            print("x_hat max:", x_hat.abs().max().item())
+            print("x mean:", x.mean().item())
+            print("x_hat mean:", x_hat.mean().item())
+
             recon_loss = multi_scale_stft_loss(
-                audio.squeeze(1),
-                x_recon.squeeze(1)
+                x,
+                x_hat
             )
 
             loss = (
@@ -136,9 +147,15 @@ def train():
                 hp["lambda_recon"] * recon_loss
             )
 
+            if torch.isnan(loss) or torch.isinf(loss):
+                print("LOSS IS NAN or INF")
+                print("contrastive", contrastive_loss.item())
+                print("recon", recon_loss.item())
+                exit(1)
+
             optimizer.zero_grad()
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=hp.get("max_grad_norm", 1.0))
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
 
             train_loss += loss.item()
@@ -188,6 +205,12 @@ def train():
                     hp["lambda_contrastive"] * contrastive_loss +
                     hp["lambda_recon"] * recon_loss
                 )
+
+                if torch.isnan(loss) or torch.isinf(loss):
+                    print("VALIDATION LOSS IS NAN or INF")
+                    print("contrastive", contrastive_loss.item())
+                    print("recon", recon_loss.item())
+                    exit(1)
 
                 val_loss += loss.item()
                 val_contrastive += contrastive_loss.item()

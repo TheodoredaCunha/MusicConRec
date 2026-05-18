@@ -30,8 +30,10 @@ def _stft_loss(x, y, n_fft, hop_length, win_length):
     X_mag = X.abs().clamp(min=1e-9)
     Y_mag = Y.abs().clamp(min=1e-9)
 
-    # spectral convergence
-    sc_loss = torch.norm(Y_mag - X_mag, p="fro") / (torch.norm(Y_mag, p="fro") + 1e-9)
+    # spectral convergence (more stable)
+    sc_num = ((Y_mag - X_mag) ** 2).mean().sqrt()
+    sc_den = (Y_mag ** 2).mean().sqrt() + 1e-7
+    sc_loss = sc_num / sc_den
 
     # log magnitude loss
     log_loss = F.l1_loss(torch.log(Y_mag), torch.log(X_mag))

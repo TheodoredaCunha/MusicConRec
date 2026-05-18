@@ -34,6 +34,8 @@ class MusicBenchDataset(Dataset):
         if max_val > 0:
             waveform = waveform / max_val
 
+        waveform = waveform.clamp(-1.0, 1.0)
+
         # ensure shape (1, T)
         if waveform.dim() == 1:
             waveform = waveform.unsqueeze(0)
