@@ -3,6 +3,7 @@ Utility functions for loading pre-trained MusicConRec models and inference
 """
 
 import torch
+import torchaudio
 from model.model import MusicConRec
 import os
 
@@ -138,26 +139,58 @@ def load_final_model(model_dir: str = "./outputs", device: str = "cuda") -> Musi
     return MusicConRecInference(final_model_path, device)
 
 
-if __name__ == "__main__":
-    # Example usage
-    import torchaudio
-    
+def inference():
     # Load model
     model = load_best_model()
-    
+
+    # Get device from model
+    device = next(model.model.parameters()).device
+
     # Load audio file
-    audio, sr = torchaudio.load("path/to/audio.wav", normalize=False)
-    audio = audio / audio.abs().max()
-    audio = audio.unsqueeze(0)  # (1, 1, T)
-    
-    # Get embedding
-    embedding = model.get_audio_embedding(audio)
+    # torchaudio already converts PCM -> float32 in [-1, 1]
+    audio, sr = torchaudio.load("./inference/audio_sample.wav")
+
+    print(f"Original audio shape: {audio.shape}")
+    print(f"Sample rate: {sr}")
+
+    # Add batch dimension
+    # (C, T) -> (1, C, T)
+    audio = audio.unsqueeze(0).to(device)
+
+    # -----------------------------
+    # Generate embedding
+    # -----------------------------
+    with torch.no_grad():
+        embedding = model.get_audio_embedding(audio)
+
     print(f"Audio embedding shape: {embedding.shape}")
-    print(f"Embedding: {embedding}")
-    
+
+    # -----------------------------
     # Reconstruct audio
-    recon_audio = model.reconstruct_audio(audio)
+    # -----------------------------
+    with torch.no_grad():
+        recon_audio = model.reconstruct_audio(audio)
+
     print(f"Reconstructed audio shape: {recon_audio.shape}")
-    
+
+    # Remove batch dimension
+    # (1, C, T) -> (C, T)
+    recon_audio = recon_audio.squeeze(0)
+
+    # Clamp output to valid audio range
+    recon_audio = recon_audio.clamp(-1.0, 1.0)
+
+    # Move to CPU for saving
+    recon_audio = recon_audio.cpu()
+
+    print(f"Reconstruction min: {recon_audio.min().item():.4f}")
+    print(f"Reconstruction max: {recon_audio.max().item():.4f}")
+
     # Save reconstructed audio
-    torchaudio.save("reconstructed_audio.wav", recon_audio, sr)
+    torchaudio.save(
+        "./inference/reconstructed_audio.wav",
+        recon_audio,
+        sr
+    )
+
+    print("✓ Reconstructed audio saved to reconstructed_audio.wav")

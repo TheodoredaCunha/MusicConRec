@@ -2,6 +2,7 @@ import sys
 from train import train
 from eval import eval
 from split_dataset import split_dataset
+from inference import inference
 # from scripts.train_sagemaker import train_sm
 
 def info():
@@ -18,5 +19,7 @@ if __name__ == '__main__':
         eval()
     elif mode == 'splitdata': # create training and validation split from MusicBench dataset (made to be reproducible using seed 42)
         split_dataset()
+    elif mode == 'inference': # run inference on a sample audio file and print the embedding
+        inference()
     else:
         info()
