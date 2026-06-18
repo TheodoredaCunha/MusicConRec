@@ -67,16 +67,17 @@ def build_scheduler(optimizer, hp):
         )
 
     if scheduler_type == "reducelronplateau":
-        return torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer,
-            mode=scheduler_cfg.get("mode", "min"),
-            factor=scheduler_cfg.get("factor", 0.1),
-            patience=scheduler_cfg.get("patience", 3),
-            threshold=scheduler_cfg.get("threshold", 1e-4),
-            min_lr=scheduler_cfg.get("min_lr", 0.0),
-            cooldown=scheduler_cfg.get("cooldown", 0),
-            verbose=scheduler_cfg.get("verbose", False)
-        )
+        kwargs = {
+            "mode": scheduler_cfg.get("mode", "min"),
+            "factor": scheduler_cfg.get("factor", 0.1),
+            "patience": scheduler_cfg.get("patience", 3),
+            "threshold": scheduler_cfg.get("threshold", 1e-4),
+            "min_lr": scheduler_cfg.get("min_lr", 0.0),
+            "cooldown": scheduler_cfg.get("cooldown", 0),
+        }
+        if "verbose" in torch.optim.lr_scheduler.ReduceLROnPlateau.__init__.__code__.co_varnames:
+            kwargs["verbose"] = scheduler_cfg.get("verbose", False)
+        return torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, **kwargs)
 
     return None
 
