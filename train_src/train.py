@@ -5,6 +5,8 @@ from datetime import datetime
 from tqdm import tqdm
 import json
 import os
+import random
+import numpy as np
 
 from dataset import MusicBenchDataset, collate_fn
 from model.model import MusicConRec 
@@ -80,6 +82,26 @@ def build_scheduler(optimizer, hp):
     return None
 
 
+def set_seed(seed: int):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    try:
+        torch.use_deterministic_algorithms(True)
+    except Exception:
+        pass
+
+
+def worker_init_fn(worker_id):
+    seed = torch.initial_seed() % (2**32 - 1)
+    np.random.seed(seed + worker_id)
+    random.seed(seed + worker_id)
+
+
 def train():
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -88,6 +110,12 @@ def train():
     # =========================
     with open("training_hyperparam.json", "r") as f:
         hp = json.load(f)
+
+    # Set deterministic seed for reproducibility
+    seed = int(hp.get("seed", 42))
+    set_seed(seed)
+    dl_generator = torch.Generator()
+    dl_generator.manual_seed(seed)
 
     # =========================
     # PATHS (AUTO SWITCH)
@@ -119,6 +147,8 @@ def train():
         shuffle=True,
         collate_fn=collate_fn,
         num_workers=4,
+        worker_init_fn=worker_init_fn,
+        generator=dl_generator,
         pin_memory=True
     )
 
@@ -128,6 +158,8 @@ def train():
         shuffle=False,
         collate_fn=collate_fn,
         num_workers=4,
+        worker_init_fn=worker_init_fn,
+        generator=dl_generator,
         pin_memory=True
     )
 

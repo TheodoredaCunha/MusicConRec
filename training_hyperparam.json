@@ -2,6 +2,7 @@
     "epochs": 50,
     "batch_size": 32,
     "num_workers": 8,
+    "seed": 42,
     "learning_rate": 5e-5,
     "ntxent_temperature": 0.07,
     "lambda_contrastive": 1.0,
