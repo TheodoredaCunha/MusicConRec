@@ -39,6 +39,46 @@ def get_env_paths():
     return train_dir, val_dir, model_dir, log_dir
 
 
+def build_scheduler(optimizer, hp):
+    scheduler_cfg = hp.get("lr_scheduler", {})
+    scheduler_type = scheduler_cfg.get("type", "none").lower()
+
+    if scheduler_type == "steplr":
+        return torch.optim.lr_scheduler.StepLR(
+            optimizer,
+            step_size=scheduler_cfg.get("step_size", 10),
+            gamma=scheduler_cfg.get("gamma", 0.1)
+        )
+
+    if scheduler_type == "multisteplr":
+        return torch.optim.lr_scheduler.MultiStepLR(
+            optimizer,
+            milestones=scheduler_cfg.get("milestones", [10, 20, 30]),
+            gamma=scheduler_cfg.get("gamma", 0.1)
+        )
+
+    if scheduler_type == "cosineannealinglr":
+        return torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer,
+            T_max=scheduler_cfg.get("T_max", hp.get("epochs", 50)),
+            eta_min=scheduler_cfg.get("eta_min", 0.0)
+        )
+
+    if scheduler_type == "reducelronplateau":
+        return torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            mode=scheduler_cfg.get("mode", "min"),
+            factor=scheduler_cfg.get("factor", 0.1),
+            patience=scheduler_cfg.get("patience", 3),
+            threshold=scheduler_cfg.get("threshold", 1e-4),
+            min_lr=scheduler_cfg.get("min_lr", 0.0),
+            cooldown=scheduler_cfg.get("cooldown", 0),
+            verbose=scheduler_cfg.get("verbose", False)
+        )
+
+    return None
+
+
 def train():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     torch.autograd.set_detect_anomaly(True)
@@ -95,6 +135,8 @@ def train():
         model.parameters(),
         lr=hp["learning_rate"]
     )
+
+    scheduler = build_scheduler(optimizer, hp)
 
     # =========================
     # TRAIN LOOP
@@ -155,7 +197,7 @@ def train():
 
             optimizer.zero_grad()
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=hp.get("max_grad_norm", 1.0))
             optimizer.step()
 
             train_loss += loss.item()
@@ -221,10 +263,18 @@ def train():
         val_contrastive /= len(val_loader)
         val_recon /= len(val_loader)
 
+        # scheduler step
+        if scheduler is not None:
+            if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                scheduler.step(val_loss)
+            else:
+                scheduler.step()
+
         # 🔥 LOG
         writer.add_scalar("Loss/Val_Total", val_loss, epoch)
         writer.add_scalar("Loss/Val_Contrastive", val_contrastive, epoch)
         writer.add_scalar("Loss/Val_Reconstruction", val_recon, epoch)
+        writer.add_scalar("Training/Learning_Rate", optimizer.param_groups[0]["lr"], epoch)
 
         train_recon_weighted = hp["lambda_recon"] * train_recon
         val_recon_weighted = hp["lambda_recon"] * val_recon
