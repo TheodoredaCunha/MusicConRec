@@ -3,6 +3,7 @@ from train import train
 from eval import eval
 from split_dataset import split_dataset
 from inference import inference
+from tensorboard_vis import visualize_best_run
 # from scripts.train_sagemaker import train_sm
 
 def info():
@@ -21,5 +22,7 @@ if __name__ == '__main__':
         split_dataset()
     elif mode == 'inference': # run inference on a sample audio file and print the embedding
         inference()
+    elif mode == 'tensorboard': # visualize training loss curves using tensorboard
+        visualize_best_run()
     else:
         info()
