@@ -29,8 +29,8 @@ def get_env_paths():
         print("Running locally")
 
         audio_root = "./dataset"
-        train_dir = r"C:/temp"
-        val_dir = r"C:/temp"
+        train_dir = "./dataset"
+        val_dir = "./dataset"
         model_dir = "./outputs"
         log_dir = "./runs"
 
