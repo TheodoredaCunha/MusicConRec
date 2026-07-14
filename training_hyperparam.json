@@ -6,7 +6,7 @@
     "learning_rate": 5e-5,
     "ntxent_temperature": 0.07,
     "lambda_contrastive": 1.0,
-    "lambda_recon": 0.5,
+    "lambda_recon": 0.2,
     "max_grad_norm": 1.0,
     "lr_scheduler": {
         "type": "ReduceLROnPlateau",
