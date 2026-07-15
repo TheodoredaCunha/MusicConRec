@@ -9,11 +9,13 @@ from transformers import EncodecModel, AutoProcessor
 
 from preprocessing.audio_preprocess import resample
 from preprocessing.chord_beat import chord_beat
+from preprocessing.augment import random_pitch_shift, transpose_chord_representation
 
 class MusicBenchDataset(Dataset):
-    def __init__(self, dataset_dir, audio_dir):
+    def __init__(self, dataset_dir, audio_dir, augment=False):
         self.data_dir = audio_dir
         self.dataset_dir = dataset_dir
+        self.augment = augment
         # self.audio_processor = AutoProcessor.from_pretrained("facebook/encodec_24khz")
 
         with open(self.dataset_dir, "r") as f:
@@ -40,9 +42,6 @@ class MusicBenchDataset(Dataset):
         if waveform.dim() == 1:
             waveform = waveform.unsqueeze(0)
 
-
-        
-
         # =========================
         # CHORD-BEAT
         # =========================
@@ -52,6 +51,13 @@ class MusicBenchDataset(Dataset):
         beat_times = item["beats"][0]
 
         chord_beat_representation = chord_beat(chords, beats, chord_times, beat_times)
+
+        if self.augment:
+            waveform, pitch_shift_steps = random_pitch_shift(waveform, sr)
+            chord_beat_representation = transpose_chord_representation(
+                chord_beat_representation,
+                pitch_shift_steps
+            )
 
         return waveform, chord_beat_representation
 

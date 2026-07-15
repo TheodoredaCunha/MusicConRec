@@ -136,8 +136,8 @@ def train():
     # =========================
     # DATASETS
     # =========================
-    train_dataset = MusicBenchDataset(hp['traindata_dir'], train_dir)
-    val_dataset = MusicBenchDataset(hp['valdata_dir'], val_dir)
+    train_dataset = MusicBenchDataset(hp['traindata_dir'], train_dir, augment=True)
+    val_dataset = MusicBenchDataset(hp['valdata_dir'], val_dir, augment=False)
 
     train_loader = DataLoader(
         train_dataset,
