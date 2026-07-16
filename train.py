@@ -10,7 +10,7 @@ import numpy as np
 
 from dataset import MusicBenchDataset, collate_fn
 from model.model import MusicConRec 
-from loss.ntxent import nt_xent
+from loss.ntxent import nt_xent, moco_contrastive_loss
 from loss.recon import multi_scale_stft_loss
 
 
@@ -198,11 +198,17 @@ def train():
             z_audio = output['z_audio']
             z_chord = output['z_chord']
 
-            contrastive_loss = nt_xent(
+            contrastive_loss = moco_contrastive_loss(
                 z_audio,
                 z_chord,
-                hp["ntxent_temperature"]
+                z_audio,
+                z_chord,
+                model.queue_audio,
+                model.queue_chord,
+                temperature=hp["ntxent_temperature"],
             )
+
+            model.update_moco_queue(z_audio, z_chord)
 
             x = audio.squeeze(1)
             x_hat = x_recon.squeeze(1)
@@ -267,10 +273,14 @@ def train():
                 z_audio = output['z_audio']
                 z_chord = output['z_chord']
 
-                contrastive_loss = nt_xent(
+                contrastive_loss = moco_contrastive_loss(
                     z_audio,
                     z_chord,
-                    hp["ntxent_temperature"]
+                    z_audio,
+                    z_chord,
+                    model.queue_audio,
+                    model.queue_chord,
+                    temperature=hp["ntxent_temperature"],
                 )
 
                 recon_loss = multi_scale_stft_loss(

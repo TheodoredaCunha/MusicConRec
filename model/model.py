@@ -6,7 +6,7 @@ from model.projection import ProjectionHead
 from model.chordbeat_encoder import ChordBeatEncoder
 
 class MusicConRec(nn.Module):
-    def __init__(self, codebook_size=1024, feature_dim=128, proj_dim=128):
+    def __init__(self, codebook_size=1024, feature_dim=128, proj_dim=128, queue_size=4096):
         super().__init__()
 
         # === AUDIO SIDE ===
@@ -26,6 +26,11 @@ class MusicConRec(nn.Module):
             input_dim=13,
             d_model=feature_dim
         )
+
+        self.register_buffer("queue_audio", torch.zeros(queue_size, proj_dim))
+        self.register_buffer("queue_chord", torch.zeros(queue_size, proj_dim))
+        self.register_buffer("queue_ptr", torch.zeros(1, dtype=torch.long))
+        self.momentum = 0.99
 
     def forward(self, audio, chord):
         """
@@ -72,3 +77,27 @@ class MusicConRec(nn.Module):
             "h_audio": h_audio,
             "h_chord": h_chord
         }
+
+    def update_moco_queue(self, z_audio, z_chord):
+        batch_size = z_audio.size(0)
+        queue_size = self.queue_audio.size(0)
+        ptr = int(self.queue_ptr.item())
+
+        if batch_size > queue_size:
+            raise ValueError("Batch size exceeds MoCo queue size")
+
+        if ptr + batch_size <= queue_size:
+            self.queue_audio[ptr:ptr + batch_size] = z_audio.detach()
+            self.queue_chord[ptr:ptr + batch_size] = z_chord.detach()
+            self.queue_ptr[0] = (ptr + batch_size) % queue_size
+        else:
+            remaining = queue_size - ptr
+            self.queue_audio[ptr:queue_size] = z_audio[:remaining].detach()
+            self.queue_chord[ptr:queue_size] = z_chord[:remaining].detach()
+            self.queue_audio[:batch_size - remaining] = z_audio[remaining:].detach()
+            self.queue_chord[:batch_size - remaining] = z_chord[remaining:].detach()
+            self.queue_ptr[0] = (ptr + batch_size) % queue_size
+
+    def momentum_update(self, online, target):
+        for online_param, target_param in zip(online.parameters(), target.parameters()):
+            target_param.data = self.momentum * target_param.data + (1.0 - self.momentum) * online_param.data
