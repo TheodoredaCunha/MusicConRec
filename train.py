@@ -128,6 +128,7 @@ def train():
     run_name = datetime.now().strftime("%Y%m%d-%H%M%S")
     writer = SummaryWriter(log_dir=os.path.join(log_dir, run_name))
 
+    print("Training using MoCo-style contrastive loss with queue size:", hp.get("queue_size", 4096))
     print("Train dir:", train_dir)
     print("Val dir:", val_dir)
     print("Model dir:", model_dir)
