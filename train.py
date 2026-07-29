@@ -213,11 +213,6 @@ def train():
                 temperature=hp["ntxent_temperature"],
             )
 
-            # Enqueue the KEY embeddings (not the query embeddings) after
-            # they've been used for this step's loss. update_moco_queue
-            # detaches internally.
-            model.update_moco_queue(k_audio, k_chord)
-
             x = audio.squeeze(1)
             x_hat = x_recon.squeeze(1)
 
@@ -238,6 +233,15 @@ def train():
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=hp.get("max_grad_norm", 1.0))
             optimizer.step()
+
+            # Enqueue the KEY embeddings only now, after backward()/step() have
+            # both finished using the queue's pre-update values. Doing this
+            # earlier causes: "one of the variables needed for gradient
+            # computation has been modified by an inplace operation" — autograd
+            # needs the queue's original contents to compute the gradient of
+            # the matmul against it during backward(), so mutating it beforehand
+            # invalidates the saved values.
+            model.update_moco_queue(k_audio, k_chord)
 
             train_loss += loss.item()
             train_contrastive += contrastive_loss.item()
@@ -348,3 +352,7 @@ def train():
     print(f"Final model saved to: {final_model_path}")
     print(f"Best model (validation) saved to: {os.path.join(model_dir, 'best_model.pth')}")
     print(f"Best validation loss: {best_val_loss:.4f}")
+
+
+if __name__ == "__main__":
+    train()
