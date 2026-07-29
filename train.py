@@ -184,7 +184,10 @@ def train():
     # =========================
     # MODEL
     # =========================
-    model = MusicConRec(momentum=hp.get("moco_momentum", 0.99)).to(device)
+    model = MusicConRec(
+        momentum=0.999,
+        train_encodec=False
+    ).to(device)
 
 
     # Only the ONLINE (query) modules should ever be in the optimizer — the
@@ -194,15 +197,18 @@ def train():
     momentum_module_names = {"encodec_k", "code_embedding_k", "audio_pool_k",
                               "audio_proj_k", "chord_encoder_k"}
 
-    encodec_params = [p for n, p in model.named_parameters()
-                       if n.split(".")[0] == "encodec"]
-    head_params = [p for n, p in model.named_parameters()
-                   if n.split(".")[0] not in ({"encodec"} | momentum_module_names)]
+    trainable_params = [
+        p for p in model.parameters()
+        if p.requires_grad
+    ]
 
-    optimizer = torch.optim.Adam([
-        {"params": encodec_params, "lr": hp.get("encodec_learning_rate", hp["learning_rate"] * 0.1)},
-        {"params": head_params, "lr": hp["learning_rate"]},
-    ])
+
+    optimizer = torch.optim.AdamW(
+        trainable_params,
+        lr=1e-4,
+        weight_decay=1e-4
+    )
+
 
     scheduler = build_scheduler(optimizer, hp)
 
