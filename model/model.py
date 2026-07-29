@@ -67,6 +67,11 @@ class MusicConRec(nn.Module):
     # run identical logic through their respective (online vs. momentum)
     # module instances instead of duplicating/drifting copies of this code.
     def _encode_audio(self, audio, encodec, code_embedding, audio_pool, audio_proj):
+
+        for module in encodec.modules():
+            if isinstance(module, nn.LSTM):
+                module.flatten_parameters()
+
         encoder_outputs = encodec.encode(audio)
         audio_codes = encoder_outputs['audio_codes'].long()
         audio_scales = encoder_outputs['audio_scales']
