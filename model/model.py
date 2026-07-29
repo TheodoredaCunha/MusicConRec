@@ -130,20 +130,23 @@ class MusicConRec(nn.Module):
 
         outputs = encodec.encode(audio)
 
-        codes = outputs["audio_codes"].long()
-        scales = outputs["audio_scales"]
+        audio_codes = outputs["audio_codes"].long()
+        audio_scales = outputs["audio_scales"]
 
-        codes = codes.squeeze(0).permute(0,2,1)
+        # Keep original shape for Encodec.decode()
+        codes_for_embedding = audio_codes.squeeze(0).permute(0, 2, 1)
 
-        codes = code_embedding(codes)
+        # Convert discrete codes into embeddings
+        codes_for_embedding = code_embedding(codes_for_embedding)
 
-        codes = codes.mean(dim=2)
+        # Average over codebooks
+        codes_for_embedding = codes_for_embedding.mean(dim=2)
 
-        h = audio_pool(codes)
+        h = audio_pool(codes_for_embedding)
 
         z = audio_proj(h)
 
-        return z, h, codes, scales
+        return z, h, audio_codes, audio_scales
 
 
 
