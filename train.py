@@ -125,7 +125,7 @@ def train():
     writer = SummaryWriter(log_dir=os.path.join(log_dir, run_name))
 
     print("Training using MoCo-style contrastive loss with queue size:", hp.get("queue_size", 4096))
-    print("Momentum (EMA) coefficient:", hp.get("moco_momentum", 0.999))
+    print("Momentum (EMA) coefficient:", hp.get("moco_momentum", 0.99))
     print("Train dir:", train_dir)
     print("Val dir:", val_dir)
     print("Model dir:", model_dir)
@@ -163,10 +163,22 @@ def train():
     # =========================
     model = MusicConRec(momentum=hp.get("moco_momentum", 0.99)).to(device)
 
-    optimizer = torch.optim.Adam(
-        model.parameters(),
-        lr=hp["learning_rate"]
-    )
+    # Only the ONLINE (query) modules should ever be in the optimizer — the
+    # momentum (key) modules (encodec_k, code_embedding_k, audio_pool_k,
+    # audio_proj_k, chord_encoder_k) are updated exclusively via EMA in
+    # update_momentum_encoders() and must never receive a gradient step.
+    momentum_module_names = {"encodec_k", "code_embedding_k", "audio_pool_k",
+                              "audio_proj_k", "chord_encoder_k"}
+
+    encodec_params = [p for n, p in model.named_parameters()
+                       if n.split(".")[0] == "encodec"]
+    head_params = [p for n, p in model.named_parameters()
+                   if n.split(".")[0] not in ({"encodec"} | momentum_module_names)]
+
+    optimizer = torch.optim.Adam([
+        {"params": encodec_params, "lr": hp.get("encodec_learning_rate", hp["learning_rate"] * 0.1)},
+        {"params": head_params, "lr": hp["learning_rate"]},
+    ])
 
     scheduler = build_scheduler(optimizer, hp)
 
@@ -352,7 +364,3 @@ def train():
     print(f"Final model saved to: {final_model_path}")
     print(f"Best model (validation) saved to: {os.path.join(model_dir, 'best_model.pth')}")
     print(f"Best validation loss: {best_val_loss:.4f}")
-
-
-if __name__ == "__main__":
-    train()
