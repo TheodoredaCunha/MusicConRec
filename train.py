@@ -186,6 +186,11 @@ def train():
     # =========================
     model = MusicConRec(momentum=hp.get("moco_momentum", 0.99)).to(device)
 
+    for module in model.modules():
+        if isinstance(module, torch.nn.LSTM):
+            module.flatten_parameters()
+
+
     # Only the ONLINE (query) modules should ever be in the optimizer — the
     # momentum (key) modules (encodec_k, code_embedding_k, audio_pool_k,
     # audio_proj_k, chord_encoder_k) are updated exclusively via EMA in
