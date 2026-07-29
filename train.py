@@ -9,8 +9,8 @@ import random
 import numpy as np
 
 from dataset import MusicBenchDataset, collate_fn
-from model.model import MusicConRec 
-from loss.ntxent import nt_xent, moco_contrastive_loss
+from model.model import MusicConRec
+from loss.ntxent import moco_contrastive_loss
 from loss.recon import multi_scale_stft_loss
 
 
@@ -28,7 +28,6 @@ def get_env_paths():
     else:
         print("Running locally")
 
-        audio_root = "./dataset"
         train_dir = "./dataset"
         val_dir = "./dataset"
         model_dir = "./outputs"
@@ -88,7 +87,6 @@ def set_seed(seed: int):
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
-    # Make cuDNN deterministic
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     try:
@@ -98,7 +96,6 @@ def set_seed(seed: int):
 
 
 def worker_init_fn(worker_id):
-    # Seed numpy and random for each dataloader worker
     seed = torch.initial_seed() % (2**32 - 1)
     np.random.seed(seed + worker_id)
     random.seed(seed + worker_id)
@@ -114,7 +111,6 @@ def train():
     with open("training_hyperparam.json", "r") as f:
         hp = json.load(f)
 
-    # Set deterministic seed for reproducibility
     seed = int(hp.get("seed", 42))
     set_seed(seed)
     dl_generator = torch.Generator()
@@ -129,10 +125,10 @@ def train():
     writer = SummaryWriter(log_dir=os.path.join(log_dir, run_name))
 
     print("Training using MoCo-style contrastive loss with queue size:", hp.get("queue_size", 4096))
+    print("Momentum (EMA) coefficient:", hp.get("moco_momentum", 0.999))
     print("Train dir:", train_dir)
     print("Val dir:", val_dir)
     print("Model dir:", model_dir)
-
 
     # =========================
     # DATASETS
@@ -148,7 +144,7 @@ def train():
         num_workers=hp["num_workers"],
         worker_init_fn=worker_init_fn,
         generator=dl_generator,
-        pin_memory=True
+        pin_memory=True,
     )
 
     val_loader = DataLoader(
@@ -165,7 +161,7 @@ def train():
     # =========================
     # MODEL
     # =========================
-    model = MusicConRec().to(device)
+    model = MusicConRec(momentum=hp.get("moco_momentum", 0.99)).to(device)
 
     optimizer = torch.optim.Adam(
         model.parameters(),
@@ -180,7 +176,7 @@ def train():
     best_val_loss = float('inf')
     patience = 5
     patience_counter = 0
-    
+
     for epoch in range(hp["epochs"]):
         print("epoch ", epoch)
 
@@ -193,38 +189,39 @@ def train():
             audio = audio.to(device)
             chord_beats = chord_beats.to(device)
 
+            # Query encoders (grad-tracked) run first.
             output = model(audio, chord_beats)
 
             x_recon = output['x_recon']
-            z_audio = output['z_audio']
-            z_chord = output['z_chord']
+            z_audio = output['z_audio']     # query embedding, audio tower
+            z_chord = output['z_chord']     # query embedding, chord/beat tower
 
+            # Momentum (key) encoders: EMA-update them from the current query
+            # encoder weights, then forward the SAME batch through them.
+            model.update_momentum_encoders()
+            k_audio, k_chord = model.forward_momentum(audio, chord_beats)
+
+            # Symmetric InfoNCE: queries vs. queue of the OTHER modality's keys,
+            # positives are the in-batch (query, key) pairs from the same sample.
             contrastive_loss = moco_contrastive_loss(
                 z_audio,
                 z_chord,
-                z_audio,
-                z_chord,
+                k_audio,
+                k_chord,
                 model.queue_audio,
                 model.queue_chord,
                 temperature=hp["ntxent_temperature"],
             )
 
-            model.update_moco_queue(z_audio, z_chord)
+            # Enqueue the KEY embeddings (not the query embeddings) after
+            # they've been used for this step's loss. update_moco_queue
+            # detaches internally.
+            model.update_moco_queue(k_audio, k_chord)
 
             x = audio.squeeze(1)
             x_hat = x_recon.squeeze(1)
 
-            # print("x nan:", torch.isnan(x).any().item())
-            # print("x_hat nan:", torch.isnan(x_hat).any().item())
-            # print("x max:", x.abs().max().item())
-            # print("x_hat max:", x_hat.abs().max().item())
-            # print("x mean:", x.mean().item())
-            # print("x_hat mean:", x_hat.mean().item())
-
-            recon_loss = multi_scale_stft_loss(
-                x,
-                x_hat
-            )
+            recon_loss = multi_scale_stft_loss(x, x_hat)
 
             loss = (
                 hp["lambda_contrastive"] * contrastive_loss +
@@ -246,16 +243,13 @@ def train():
             train_contrastive += contrastive_loss.item()
             train_recon += recon_loss.item()
 
-        # averages
         train_loss /= len(train_loader)
         train_contrastive /= len(train_loader)
         train_recon /= len(train_loader)
 
-        # 🔥 LOG EVERYTHING
         writer.add_scalar("Loss/Train_Total", train_loss, epoch)
         writer.add_scalar("Loss/Train_Contrastive", train_contrastive, epoch)
         writer.add_scalar("Loss/Train_Reconstruction", train_recon, epoch)
-
 
         # ---- VALIDATION ----
         model.eval()
@@ -269,16 +263,19 @@ def train():
                 chord_beats = chord_beats.to(device)
 
                 output = model(audio, chord_beats)
-
                 x_recon = output['x_recon']
                 z_audio = output['z_audio']
                 z_chord = output['z_chord']
 
+                # No momentum update and no queue mutation during eval —
+                # score against the queue's current (training-time) state only.
+                k_audio, k_chord = model.forward_momentum(audio, chord_beats)
+
                 contrastive_loss = moco_contrastive_loss(
                     z_audio,
                     z_chord,
-                    z_audio,
-                    z_chord,
+                    k_audio,
+                    k_chord,
                     model.queue_audio,
                     model.queue_chord,
                     temperature=hp["ntxent_temperature"],
@@ -304,19 +301,16 @@ def train():
                 val_contrastive += contrastive_loss.item()
                 val_recon += recon_loss.item()
 
-        # averages
         val_loss /= len(val_loader)
         val_contrastive /= len(val_loader)
         val_recon /= len(val_loader)
 
-        # scheduler step
         if scheduler is not None:
             if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
                 scheduler.step(val_loss)
             else:
                 scheduler.step()
 
-        # 🔥 LOG
         writer.add_scalar("Loss/Val_Total", val_loss, epoch)
         writer.add_scalar("Loss/Val_Contrastive", val_contrastive, epoch)
         writer.add_scalar("Loss/Val_Reconstruction", val_recon, epoch)
@@ -349,9 +343,6 @@ def train():
                 break
 
     writer.close()
-    # =========================
-    # SAVE FINAL MODEL
-    # =========================
     final_model_path = os.path.join(model_dir, "final_model.pth")
     torch.save(model.state_dict(), final_model_path)
     print(f"Final model saved to: {final_model_path}")

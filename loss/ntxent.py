@@ -22,30 +22,29 @@ def nt_xent(z_audio, z_chord, temperature=0.07):
 
 
 def moco_contrastive_loss(
-    query_audio,
-    query_chord,
-    key_audio,
-    key_chord,
-    queue_audio,
-    queue_chord,
-    temperature=0.07,
+    z_audio: torch.Tensor,      # query embeddings, audio tower  [B, D], normalized
+    z_chord: torch.Tensor,      # query embeddings, chord tower  [B, D], normalized
+    k_audio: torch.Tensor,      # key embeddings,   audio tower  [B, D], normalized (momentum encoder)
+    k_chord: torch.Tensor,      # key embeddings,   chord tower  [B, D], normalized (momentum encoder)
+    queue_audio: torch.Tensor,  # [K, D] negative queue of past audio keys
+    queue_chord: torch.Tensor,  # [K, D] negative queue of past chord keys
+    temperature: float = 0.07,
 ):
-    """MoCo-style contrastive loss over current batch and a momentum queue."""
-
-    q_a = F.normalize(query_audio, dim=1)
-    q_c = F.normalize(query_chord, dim=1)
-    k_a = F.normalize(key_audio, dim=1)
-    k_c = F.normalize(key_chord, dim=1)
-    queue_a = F.normalize(queue_audio, dim=1)
-    queue_c = F.normalize(queue_chord, dim=1)
-
-    batch_size = q_a.size(0)
-
-    logits_a2c = torch.matmul(q_a, torch.cat([k_c, queue_c], dim=0).T) / temperature
-    logits_c2a = torch.matmul(q_c, torch.cat([k_a, queue_a], dim=0).T) / temperature
-
-    targets = torch.arange(batch_size, device=q_a.device)
-    loss_a2c = F.cross_entropy(logits_a2c, targets)
-    loss_c2a = F.cross_entropy(logits_c2a, targets)
-
-    return (loss_a2c + loss_c2a) / 2
+    batch_size = z_audio.shape[0]
+    device = z_audio.device
+ 
+    # Direction 1: audio query -> chord key (positive) + queue_chord (negatives)
+    l_pos_a = torch.einsum("nc,nc->n", [z_audio, k_chord]).unsqueeze(-1)   # [B, 1]
+    l_neg_a = z_audio @ queue_chord.T                                     # [B, K]
+    logits_a = torch.cat([l_pos_a, l_neg_a], dim=1) / temperature         # [B, 1+K]
+    labels_a = torch.zeros(batch_size, dtype=torch.long, device=device)   # positive is index 0
+    loss_a = F.cross_entropy(logits_a, labels_a)
+ 
+    # Direction 2: chord query -> audio key (positive) + queue_audio (negatives)
+    l_pos_c = torch.einsum("nc,nc->n", [z_chord, k_audio]).unsqueeze(-1)
+    l_neg_c = z_chord @ queue_audio.T
+    logits_c = torch.cat([l_pos_c, l_neg_c], dim=1) / temperature
+    labels_c = torch.zeros(batch_size, dtype=torch.long, device=device)
+    loss_c = F.cross_entropy(logits_c, labels_c)
+ 
+    return (loss_a + loss_c) / 2
