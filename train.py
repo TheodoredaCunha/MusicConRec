@@ -13,6 +13,29 @@ from model.model import MusicConRec
 from loss.ntxent import moco_contrastive_loss
 from loss.recon import multi_scale_stft_loss
 
+import warnings
+
+
+
+def warn_with_traceback(message, category, filename, lineno, file=None, line=None):
+    import traceback
+    traceback.print_stack()
+    print(f"{filename}:{lineno}: {category.__name__}: {message}")
+
+warnings.showwarning = warn_with_traceback
+
+warnings.filterwarnings(
+    "ignore",
+    message=".*TorchCodec.*"
+)
+
+warnings.filterwarnings(
+    "ignore",
+    message=".*StreamingMediaDecoder.*"
+)
+
+
+
 
 def get_env_paths():
     is_sagemaker = "SM_MODEL_DIR" in os.environ
@@ -89,10 +112,10 @@ def set_seed(seed: int):
         torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-    try:
-        torch.use_deterministic_algorithms(True, warn_only=True)
-    except Exception:
-        pass
+    # try:
+    #     torch.use_deterministic_algorithms(True, warn_only=True)
+    # except Exception:
+    #     pass
 
 
 def worker_init_fn(worker_id):

@@ -91,10 +91,10 @@ def set_seed(seed: int):
         torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-    try:
-        torch.use_deterministic_algorithms(True, warn_only=True)
-    except Exception:
-        pass
+    # try:
+    #     torch.use_deterministic_algorithms(True, warn_only=True)
+    # except Exception:
+    #     pass
 
 
 def worker_init_fn(worker_id):
