@@ -239,29 +239,29 @@ class MusicConRec(nn.Module):
 
 
 
-@torch.no_grad()
-def update_moco_queue(self, k_audio, k_chord):
+    @torch.no_grad()
+    def update_moco_queue(self, k_audio, k_chord):
 
-    batch_size = k_audio.size(0)
-    queue_size = self.queue_audio.size(0)
-    ptr = int(self.queue_ptr.item())
+        batch_size = k_audio.size(0)
+        queue_size = self.queue_audio.size(0)
+        ptr = int(self.queue_ptr.item())
 
-    if batch_size > queue_size:
-        raise ValueError("Batch size exceeds queue size")
+        if batch_size > queue_size:
+            raise ValueError("Batch size exceeds queue size")
 
-    if ptr + batch_size <= queue_size:
+        if ptr + batch_size <= queue_size:
 
-        self.queue_audio[ptr:ptr + batch_size] = k_audio.detach()
-        self.queue_chord[ptr:ptr + batch_size] = k_chord.detach()
+            self.queue_audio[ptr:ptr + batch_size] = k_audio.detach()
+            self.queue_chord[ptr:ptr + batch_size] = k_chord.detach()
 
-    else:
+        else:
 
-        remaining = queue_size - ptr
+            remaining = queue_size - ptr
 
-        self.queue_audio[ptr:] = k_audio[:remaining].detach()
-        self.queue_chord[ptr:] = k_chord[:remaining].detach()
+            self.queue_audio[ptr:] = k_audio[:remaining].detach()
+            self.queue_chord[ptr:] = k_chord[:remaining].detach()
 
-        self.queue_audio[:batch_size - remaining] = k_audio[remaining:].detach()
-        self.queue_chord[:batch_size - remaining] = k_chord[remaining:].detach()
+            self.queue_audio[:batch_size - remaining] = k_audio[remaining:].detach()
+            self.queue_chord[:batch_size - remaining] = k_chord[remaining:].detach()
 
-    self.queue_ptr[0] = (ptr + batch_size) % queue_size
+        self.queue_ptr[0] = (ptr + batch_size) % queue_size
