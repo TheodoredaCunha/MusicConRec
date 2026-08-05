@@ -12,6 +12,7 @@ from dataset import MusicBenchDataset, collate_fn
 from model.model import MusicConRec
 from loss.ntxent import moco_contrastive_loss
 from loss.recon import multi_scale_stft_loss
+from training_phase import get_training_phase_schedule
 
 import warnings
 
@@ -184,6 +185,15 @@ def train():
     # =========================
     # MODEL
     # =========================
+    phase_schedule = get_training_phase_schedule(hp)
+    print(
+        "Training phases:",
+        phase_schedule["encoder_pretrain_epochs"],
+        "epochs of encoder pretraining,",
+        phase_schedule["contrastive_only_epochs"],
+        "epochs of contrastive-only training",
+    )
+
     model = MusicConRec(
         momentum=0.999,
         train_encodec=False
@@ -194,17 +204,8 @@ def train():
     # momentum (key) modules (encodec_k, code_embedding_k, audio_pool_k,
     # audio_proj_k, chord_encoder_k) are updated exclusively via EMA in
     # update_momentum_encoders() and must never receive a gradient step.
-    momentum_module_names = {"encodec_k", "code_embedding_k", "audio_pool_k",
-                              "audio_proj_k", "chord_encoder_k"}
-
-    trainable_params = [
-        p for p in model.parameters()
-        if p.requires_grad
-    ]
-
-
     optimizer = torch.optim.AdamW(
-        trainable_params,
+        model.parameters(),
         lr=1e-4,
         weight_decay=1e-4
     )
@@ -215,108 +216,82 @@ def train():
     # =========================
     # TRAIN LOOP
     # =========================
-    best_val_loss = float('inf')
-    patience = 5
-    patience_counter = 0
+    patience = int(hp.get("early_stopping_patience", 5))
+    phase_order = ["encoder_pretrain", "contrastive_only"]
+    phase_epoch_limits = {
+        "encoder_pretrain": phase_schedule["encoder_pretrain_epochs"],
+        "contrastive_only": phase_schedule["contrastive_only_epochs"],
+    }
+    best_phase_metrics = {
+        "encoder_pretrain": float("inf"),
+        "contrastive_only": float("inf"),
+    }
+    phase_patience_counters = {
+        "encoder_pretrain": 0,
+        "contrastive_only": 0,
+    }
+    best_val_loss = float("inf")
+    global_epoch = 0
 
-    for epoch in range(hp["epochs"]):
-        print("epoch ", epoch)
+    for phase in phase_order:
+        print(f"Starting {phase} phase")
 
-        model.train()
-        train_loss = 0
-        train_contrastive = 0
-        train_recon = 0
+        if phase == "encoder_pretrain":
+            for p in model.encodec.parameters():
+                p.requires_grad = True
+            for p in model.code_embedding.parameters():
+                p.requires_grad = True
+            for p in model.audio_pool.parameters():
+                p.requires_grad = True
+            for p in model.audio_proj.parameters():
+                p.requires_grad = True
+            for p in model.chord_encoder.parameters():
+                p.requires_grad = True
+            if hasattr(model, "encodec_k"):
+                for p in model.encodec_k.parameters():
+                    p.requires_grad = False
+            if hasattr(model, "chord_encoder_k"):
+                for p in model.chord_encoder_k.parameters():
+                    p.requires_grad = False
+        else:
+            for p in model.encodec.parameters():
+                p.requires_grad = False
+            for p in model.code_embedding.parameters():
+                p.requires_grad = True
+            for p in model.audio_pool.parameters():
+                p.requires_grad = True
+            for p in model.audio_proj.parameters():
+                p.requires_grad = True
+            for p in model.chord_encoder.parameters():
+                p.requires_grad = True
 
-        for audio, chord_beats in tqdm(train_loader, desc=f"Train Epoch {epoch}"):
-            audio = audio.to(device)
-            chord_beats = chord_beats.to(device)
+        for epoch_in_phase in range(phase_epoch_limits[phase]):
+            epoch = global_epoch
+            print(f"epoch {epoch} | phase={phase}")
 
-            # Query encoders (grad-tracked) run first.
-            output = model(audio, chord_beats)
+            model.train()
+            train_loss = 0
+            train_contrastive = 0
+            train_recon = 0
 
-            x_recon = output['x_recon']
-            z_audio = output['z_audio']     # query embedding, audio tower
-            z_chord = output['z_chord']     # query embedding, chord/beat tower
-
-            # Momentum (key) encoders: EMA-update them from the current query
-            # encoder weights, then forward the SAME batch through them.
-            model.update_momentum_encoders()
-            k_audio, k_chord = model.forward_momentum(audio, chord_beats)
-
-            # Symmetric InfoNCE: queries vs. queue of the OTHER modality's keys,
-            # positives are the in-batch (query, key) pairs from the same sample.
-            contrastive_loss = moco_contrastive_loss(
-                z_audio,
-                z_chord,
-                k_audio,
-                k_chord,
-                model.queue_audio,
-                model.queue_chord,
-                temperature=hp["ntxent_temperature"],
-            )
-
-            x = audio.squeeze(1)
-            x_hat = x_recon.squeeze(1)
-
-            recon_loss = multi_scale_stft_loss(x, x_hat)
-
-            loss = (
-                hp["lambda_contrastive"] * contrastive_loss +
-                hp["lambda_recon"] * recon_loss
-            )
-
-            if torch.isnan(loss) or torch.isinf(loss):
-                print("LOSS IS NAN or INF")
-                print("contrastive", contrastive_loss.item())
-                print("recon", recon_loss.item())
-                exit(1)
-
-            optimizer.zero_grad()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=hp.get("max_grad_norm", 1.0))
-            optimizer.step()
-
-            # Enqueue the KEY embeddings only now, after backward()/step() have
-            # both finished using the queue's pre-update values. Doing this
-            # earlier causes: "one of the variables needed for gradient
-            # computation has been modified by an inplace operation" — autograd
-            # needs the queue's original contents to compute the gradient of
-            # the matmul against it during backward(), so mutating it beforehand
-            # invalidates the saved values.
-            model.update_moco_queue(k_audio, k_chord)
-
-            train_loss += loss.item()
-            train_contrastive += contrastive_loss.item()
-            train_recon += recon_loss.item()
-
-        train_loss /= len(train_loader)
-        train_contrastive /= len(train_loader)
-        train_recon /= len(train_loader)
-
-        writer.add_scalar("Loss/Train_Total", train_loss, epoch)
-        writer.add_scalar("Loss/Train_Contrastive", train_contrastive, epoch)
-        writer.add_scalar("Loss/Train_Reconstruction", train_recon, epoch)
-
-        # ---- VALIDATION ----
-        model.eval()
-        val_loss = 0
-        val_contrastive = 0
-        val_recon = 0
-
-        with torch.no_grad():
-            for audio, chord_beats in tqdm(val_loader, desc=f"Val Epoch {epoch}"):
+            for audio, chord_beats in tqdm(train_loader, desc=f"Train {phase} Epoch {epoch_in_phase}"):
                 audio = audio.to(device)
                 chord_beats = chord_beats.to(device)
 
+                # Query encoders (grad-tracked) run first.
                 output = model(audio, chord_beats)
-                x_recon = output['x_recon']
-                z_audio = output['z_audio']
-                z_chord = output['z_chord']
 
-                # No momentum update and no queue mutation during eval —
-                # score against the queue's current (training-time) state only.
+                x_recon = output['x_recon']
+                z_audio = output['z_audio']     # query embedding, audio tower
+                z_chord = output['z_chord']     # query embedding, chord/beat tower
+
+                # Momentum (key) encoders: EMA-update them from the current query
+                # encoder weights, then forward the SAME batch through them.
+                model.update_momentum_encoders()
                 k_audio, k_chord = model.forward_momentum(audio, chord_beats)
 
+                # Symmetric InfoNCE: queries vs. queue of the OTHER modality's keys,
+                # positives are the in-batch (query, key) pairs from the same sample.
                 contrastive_loss = moco_contrastive_loss(
                     z_audio,
                     z_chord,
@@ -327,66 +302,145 @@ def train():
                     temperature=hp["ntxent_temperature"],
                 )
 
-                recon_loss = multi_scale_stft_loss(
-                    audio.squeeze(1),
-                    x_recon.squeeze(1)
-                )
+                x = audio.squeeze(1)
+                x_hat = x_recon.squeeze(1)
 
-                loss = (
-                    hp["lambda_contrastive"] * contrastive_loss +
-                    hp["lambda_recon"] * recon_loss
-                )
+                recon_loss = multi_scale_stft_loss(x, x_hat)
+
+                if phase == "encoder_pretrain":
+                    loss = hp["lambda_recon"] * recon_loss
+                else:
+                    loss = hp["lambda_contrastive"] * contrastive_loss
 
                 if torch.isnan(loss) or torch.isinf(loss):
-                    print("VALIDATION LOSS IS NAN or INF")
+                    print("LOSS IS NAN or INF")
                     print("contrastive", contrastive_loss.item())
                     print("recon", recon_loss.item())
                     exit(1)
 
-                val_loss += loss.item()
-                val_contrastive += contrastive_loss.item()
-                val_recon += recon_loss.item()
+                optimizer.zero_grad()
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=hp.get("max_grad_norm", 1.0))
+                optimizer.step()
 
-        val_loss /= len(val_loader)
-        val_contrastive /= len(val_loader)
-        val_recon /= len(val_loader)
+                # Enqueue the KEY embeddings only now, after backward()/step() have
+                # both finished using the queue's pre-update values. Doing this
+                # earlier causes: "one of the variables needed for gradient
+                # computation has been modified by an inplace operation" — autograd
+                # needs the queue's original contents to compute the gradient of
+                # the matmul against it during backward(), so mutating it beforehand
+                # invalidates the saved values.
+                model.update_moco_queue(k_audio, k_chord)
 
-        if scheduler is not None:
-            if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
-                scheduler.step(val_loss)
+                train_loss += loss.item()
+                train_contrastive += contrastive_loss.item()
+                train_recon += recon_loss.item()
+
+            train_loss /= len(train_loader)
+            train_contrastive /= len(train_loader)
+            train_recon /= len(train_loader)
+
+            writer.add_scalar("Loss/Train_Total", train_loss, epoch)
+            writer.add_scalar("Loss/Train_Contrastive", train_contrastive, epoch)
+            writer.add_scalar("Loss/Train_Reconstruction", train_recon, epoch)
+
+            # ---- VALIDATION ----
+            model.eval()
+            val_loss = 0
+            val_contrastive = 0
+            val_recon = 0
+
+            with torch.no_grad():
+                for audio, chord_beats in tqdm(val_loader, desc=f"Val {phase} Epoch {epoch_in_phase}"):
+                    audio = audio.to(device)
+                    chord_beats = chord_beats.to(device)
+
+                    output = model(audio, chord_beats)
+                    x_recon = output['x_recon']
+                    z_audio = output['z_audio']
+                    z_chord = output['z_chord']
+
+                    # No momentum update and no queue mutation during eval —
+                    # score against the queue's current (training-time) state only.
+                    k_audio, k_chord = model.forward_momentum(audio, chord_beats)
+
+                    contrastive_loss = moco_contrastive_loss(
+                        z_audio,
+                        z_chord,
+                        k_audio,
+                        k_chord,
+                        model.queue_audio,
+                        model.queue_chord,
+                        temperature=hp["ntxent_temperature"],
+                    )
+
+                    recon_loss = multi_scale_stft_loss(
+                        audio.squeeze(1),
+                        x_recon.squeeze(1)
+                    )
+
+                    if phase == "encoder_pretrain":
+                        loss = hp["lambda_recon"] * recon_loss
+                    else:
+                        loss = hp["lambda_contrastive"] * contrastive_loss
+
+                    if torch.isnan(loss) or torch.isinf(loss):
+                        print("VALIDATION LOSS IS NAN or INF")
+                        print("contrastive", contrastive_loss.item())
+                        print("recon", recon_loss.item())
+                        exit(1)
+
+                    val_loss += loss.item()
+                    val_contrastive += contrastive_loss.item()
+                    val_recon += recon_loss.item()
+
+            val_loss /= len(val_loader)
+            val_contrastive /= len(val_loader)
+            val_recon /= len(val_loader)
+
+            if scheduler is not None:
+                if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                    scheduler.step(val_loss)
+                else:
+                    scheduler.step()
+
+            writer.add_scalar("Loss/Val_Total", val_loss, epoch)
+            writer.add_scalar("Loss/Val_Contrastive", val_contrastive, epoch)
+            writer.add_scalar("Loss/Val_Reconstruction", val_recon, epoch)
+            writer.add_scalar("Training/Learning_Rate", optimizer.param_groups[0]["lr"], epoch)
+
+            train_recon_weighted = hp["lambda_recon"] * train_recon
+            val_recon_weighted = hp["lambda_recon"] * val_recon
+            print(
+                f"Epoch {epoch} | Train Total: {train_loss:.4f} | "
+                f"Train Contrastive: {train_contrastive:.4f} | "
+                f"Train λ*Recon: {train_recon_weighted:.4f} | "
+                f"Val Total: {val_loss:.4f} | "
+                f"Val Contrastive: {val_contrastive:.4f} | "
+                f"Val λ*Recon: {val_recon_weighted:.4f}"
+            )
+
+            # =========================
+            # CHECKPOINT SAVING
+            # =========================
+            metric_to_watch = val_recon if phase == "encoder_pretrain" else val_contrastive
+            if metric_to_watch < best_phase_metrics[phase]:
+                best_phase_metrics[phase] = metric_to_watch
+                phase_patience_counters[phase] = 0
+                best_model_path = os.path.join(model_dir, f"best_model_{phase}.pth")
+                torch.save(model.state_dict(), best_model_path)
+                torch.save(model.state_dict(), os.path.join(model_dir, "best_model.pth"))
+                print(f"✓ Best {phase} model saved ({metric_to_watch:.4f})")
             else:
-                scheduler.step()
+                phase_patience_counters[phase] += 1
+                if phase_patience_counters[phase] >= patience:
+                    print(f"Early stopping triggered for {phase} after {epoch} epochs")
+                    break
 
-        writer.add_scalar("Loss/Val_Total", val_loss, epoch)
-        writer.add_scalar("Loss/Val_Contrastive", val_contrastive, epoch)
-        writer.add_scalar("Loss/Val_Reconstruction", val_recon, epoch)
-        writer.add_scalar("Training/Learning_Rate", optimizer.param_groups[0]["lr"], epoch)
+            global_epoch += 1
 
-        train_recon_weighted = hp["lambda_recon"] * train_recon
-        val_recon_weighted = hp["lambda_recon"] * val_recon
-        print(
-            f"Epoch {epoch} | Train Total: {train_loss:.4f} | "
-            f"Train Contrastive: {train_contrastive:.4f} | "
-            f"Train λ*Recon: {train_recon_weighted:.4f} | "
-            f"Val Total: {val_loss:.4f} | "
-            f"Val Contrastive: {val_contrastive:.4f} | "
-            f"Val λ*Recon: {val_recon_weighted:.4f}"
-        )
-
-        # =========================
-        # CHECKPOINT SAVING
-        # =========================
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            patience_counter = 0
-            best_model_path = os.path.join(model_dir, "best_model.pth")
-            torch.save(model.state_dict(), best_model_path)
-            print(f"✓ Best model saved (val_loss: {val_loss:.4f})")
-        else:
-            patience_counter += 1
-            if patience_counter >= patience:
-                print(f"Early stopping triggered after {epoch} epochs")
-                break
+        if phase_patience_counters[phase] >= patience:
+            print(f"{phase} phase completed early due to patience")
 
     writer.close()
     final_model_path = os.path.join(model_dir, "final_model.pth")
