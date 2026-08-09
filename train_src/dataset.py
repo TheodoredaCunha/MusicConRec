@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import torchaudio
 import os
 import json
+import re
 
 from preprocessing.chord_beat import chord_beat
 
@@ -24,10 +25,12 @@ class MusicBenchDataset(Dataset):
             return location
 
         normalized = location.replace("\\", "/")
-        for prefix in ("data_aug2/", "data_aug2"):
-            if normalized.startswith(prefix):
+        normalized = re.sub(r"/+", "/", normalized)
+        normalized = normalized.lstrip("./")
+
+        for prefix in ("dataset/data/", "dataset/", "data_aug2/", "data/"):
+            while normalized.startswith(prefix):
                 normalized = normalized[len(prefix):]
-                break
 
         return normalized.lstrip("/")
     
