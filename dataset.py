@@ -23,6 +23,18 @@ class MusicBenchDataset(Dataset):
 
     def __len__(self):
         return len(self.items)
+
+    def _normalize_location(self, location):
+        if not isinstance(location, str):
+            return location
+
+        normalized = location.replace("\\", "/")
+        for prefix in ("data_aug2/", "data_aug2"):
+            if normalized.startswith(prefix):
+                normalized = normalized[len(prefix):]
+                break
+
+        return normalized.lstrip("/")
     
     def __getitem__(self, idx):
         item = self.items[idx]
@@ -30,7 +42,7 @@ class MusicBenchDataset(Dataset):
         # =========================
         # AUDIO
         # =========================
-        audio_path = os.path.join(self.data_dir, item["location"])
+        audio_path = os.path.join(self.data_dir, self._normalize_location(item["location"]))
         waveform, sr = torchaudio.load(audio_path, normalize=True)
         max_val = waveform.abs().max()
         if max_val > 0:
