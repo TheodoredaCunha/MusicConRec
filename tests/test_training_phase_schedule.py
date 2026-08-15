@@ -1,17 +1,16 @@
 from training_phase import get_training_phase_schedule
 
 
-def test_training_phase_schedule_splits_encoder_and_contrastive_phases():
+def test_training_phase_schedule_uses_alternating_30_epoch_blocks():
     hp = {
-        "epochs": 50,
-        "encoder_pretrain_epochs": 10,
-        "contrastive_only_epochs": 40,
+        "epochs": 300,
+        "alternating_phase_epochs": 30,
+        "max_phase_epochs": 300,
     }
 
     schedule = get_training_phase_schedule(hp)
 
-    assert schedule["total_epochs"] == 50
-    assert schedule["encoder_pretrain_epochs"] == 10
-    assert schedule["contrastive_only_epochs"] == 40
-    assert schedule["phases"][:10] == ["encoder_pretrain"] * 10
-    assert schedule["phases"][10:] == ["contrastive_only"] * 40
+    assert schedule["phase_block_epochs"] == 30
+    assert schedule["phase_order"] == ["encoder_pretrain", "contrastive_only"]
+    assert schedule["max_phase_epochs"]["encoder_pretrain"] == 300
+    assert schedule["max_phase_epochs"]["contrastive_only"] == 300

@@ -1,29 +1,16 @@
 def get_training_phase_schedule(hp):
-    total_epochs = int(hp.get("epochs", 50))
-    encoder_pretrain_epochs = int(
-        hp.get("encoder_pretrain_epochs", max(total_epochs // 2, 1))
-    )
-    contrastive_only_epochs = int(
-        hp.get("contrastive_only_epochs", max(total_epochs - encoder_pretrain_epochs, 0))
-    )
+    total_epochs = int(hp.get("epochs", 300))
+    phase_block_epochs = int(hp.get("alternating_phase_epochs", 30))
+    max_phase_epochs = {
+        "encoder_pretrain": int(hp.get("max_recon_epochs", 300)),
+        "contrastive_only": int(hp.get("max_contrastive_epochs", 300)),
+    }
 
-    if encoder_pretrain_epochs + contrastive_only_epochs < total_epochs:
-        contrastive_only_epochs = total_epochs - encoder_pretrain_epochs
-
-    if encoder_pretrain_epochs + contrastive_only_epochs > total_epochs:
-        contrastive_only_epochs = max(total_epochs - encoder_pretrain_epochs, 0)
-
-    phases = ["encoder_pretrain"] * encoder_pretrain_epochs + [
-        "contrastive_only"
-    ] * contrastive_only_epochs
-    phases = phases[:total_epochs]
-
-    if len(phases) < total_epochs:
-        phases.extend(["contrastive_only"] * (total_epochs - len(phases)))
+    phase_order = ["encoder_pretrain", "contrastive_only"]
 
     return {
         "total_epochs": total_epochs,
-        "encoder_pretrain_epochs": encoder_pretrain_epochs,
-        "contrastive_only_epochs": contrastive_only_epochs,
-        "phases": phases,
+        "phase_block_epochs": phase_block_epochs,
+        "phase_order": phase_order,
+        "max_phase_epochs": max_phase_epochs,
     }
