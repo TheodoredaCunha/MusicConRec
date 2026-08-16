@@ -12,6 +12,20 @@ from preprocessing.chord_beat import chord_beat
 from preprocessing.augment import random_pitch_shift, transpose_chord_representation
 
 class MusicBenchDataset(Dataset):
+    _DATASET_PREFIXES = ("./", "dataset/", "data/", "data_aug2/", "data_aug/")
+
+    @staticmethod
+    def normalize_audio_path(audio_dir, location):
+        cleaned = str(location).replace("\\", "/")
+        cleaned = cleaned.lstrip("./")
+
+        for prefix in MusicBenchDataset._DATASET_PREFIXES:
+            if cleaned.startswith(prefix):
+                cleaned = cleaned[len(prefix):]
+                break
+
+        return os.path.normpath(os.path.join(audio_dir, cleaned))
+
     def __init__(self, dataset_dir, audio_dir, augment=False):
         self.data_dir = audio_dir
         self.dataset_dir = dataset_dir
@@ -30,7 +44,7 @@ class MusicBenchDataset(Dataset):
         # =========================
         # AUDIO
         # =========================
-        audio_path = os.path.join(self.data_dir, item["location"])
+        audio_path = self.normalize_audio_path(self.data_dir, item["location"])
         waveform, sr = torchaudio.load(audio_path, normalize=True)
         max_val = waveform.abs().max()
         if max_val > 0:
