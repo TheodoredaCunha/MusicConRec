@@ -186,9 +186,10 @@ def train():
     # =========================
     model = MusicConRec(
         momentum=0.999,
-        train_encodec=False
+        train_encodec=True
     ).to(device)
 
+    print("Unfreezing Encodec backbone to allow reconstruction loss to improve during joint training")
 
     # Only the ONLINE (query) modules should ever be in the optimizer — the
     # momentum (key) modules (encodec_k, code_embedding_k, audio_pool_k,

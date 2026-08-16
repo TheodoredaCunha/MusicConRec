@@ -18,7 +18,7 @@ class MusicConRec(nn.Module):
         proj_dim=128,
         queue_size=4096,
         momentum=0.999,
-        train_encodec=False,
+        train_encodec=True,
     ):
         super().__init__()
 
@@ -32,10 +32,7 @@ class MusicConRec(nn.Module):
             "facebook/encodec_24khz"
         )
 
-        if not train_encodec:
-            for p in self.encodec.parameters():
-                p.requires_grad = False
-
+        self._set_encodec_trainability(train_encodec)
 
         self.code_embedding = nn.Embedding(
             codebook_size,
@@ -108,6 +105,17 @@ class MusicConRec(nn.Module):
             torch.tensor(False)
         )
 
+
+    def _set_encodec_trainability(self, train_encodec):
+        for p in self.encodec.parameters():
+            p.requires_grad = False
+
+        if not train_encodec:
+            return
+
+        for name, param in self.encodec.named_parameters():
+            if "decoder" in name.lower() or "final" in name.lower() or "post" in name.lower():
+                param.requires_grad = True
 
     def flatten_lstm(self):
 
