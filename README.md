@@ -53,6 +53,11 @@ pip install -r requirements.txt
 ## Quick Start
 
 ### 1. Prepare Data
+Place the audio directories referenced by the JSON (such as `data/` and
+`data_aug2/`) under `dataset/`. For example, `data_aug2/example.wav` resolves
+to `dataset/data_aug2/example.wav` locally. In SageMaker, the corresponding
+directories should be under each configured audio channel directory.
+
 ```bash
 python split_dataset.py  # Creates train/val splits from MusicBench
 ```
